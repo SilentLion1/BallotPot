@@ -1,0 +1,194 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Collection Group Rules
+    match /{path=**}/members/{memberUid} {
+      allow read: if isAuthenticated();
+    }
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: groups
+    // Fields:
+    //   - name: string (required)
+    //   - adminUid: string (required)
+    //   - createdAt: timestamp (required)
+    //   - activeSessionId: string (optional)
+    //
+    // Collection: groups/{groupId}/members
+    // Document ID: {userUid}
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - joinedAt: timestamp (required)
+    //
+    // Collection: groups/{groupId}/sessions
+    // Fields:
+    //   - status: string (required, enum: ['active', 'completed'])
+    //   - totalNumbers: number (required)
+    //   - availableNumbers: list (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: groups/{groupId}/sessions/{sessionId}/ballots
+    // Fields:
+    //   - memberUid: string (required)
+    //   - memberName: string (required)
+    //   - number: number (required)
+    //   - timestamp: timestamp (required)
+    //
+    // Collection: invitations
+    // Fields:
+    //   - email: string (required)
+    //   - invitedBy: string (required)
+    //   - groupId: string (required)
+    //   - groupName: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "kwabeekyeremehyeboah@gmail.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isGroupAdmin(groupId) {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/groups/$(groupId)).data.adminUid == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    function isGroupMember(groupId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidGroup(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.adminUid is string && data.adminUid == request.auth.uid &&
+             data.createdAt is timestamp &&
+             (!('description' in data) || (data.description is string && data.description.size() < 500)) &&
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 1000000)) &&
+             (!('pullingMode' in data) || (data.pullingMode in ['individual', 'admin']));
+    }
+
+    function isValidMember(data) {
+      return data.uid is string && data.uid == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.joinedAt is timestamp;
+    }
+
+    function isValidSession(data) {
+      return data.status in ['active', 'completed'] &&
+             data.totalNumbers is int && data.totalNumbers > 0 &&
+             data.availableNumbers is list &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidBallot(data) {
+      return data.memberUid is string && data.memberUid == request.auth.uid &&
+             data.memberName is string && data.memberName.size() > 0 &&
+             data.number is int &&
+             data.timestamp is timestamp &&
+             (!('voteCount' in data) || data.voteCount is int);
+    }
+
+    function isValidInvitation(data) {
+      return data.email is string && isValidEmail(data.email) &&
+             data.invitedBy is string && data.invitedBy == request.auth.uid &&
+             data.groupId is string &&
+             data.groupName is string && data.groupName.size() > 0 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /invitations/{invitationId} {
+      allow read: if isAuthenticated() && resource.data.email == request.auth.token.email;
+      allow create: if isAuthenticated() && isValidInvitation(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.email == request.auth.token.email || isGroupAdmin(resource.data.groupId));
+    }
+
+    match /userPreferences/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidGroup(request.resource.data);
+      allow update: if isGroupAdmin(groupId) && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activeSessionId', 'name', 'defaultDuration', 'description', 'avatarUrl', 'pullingMode'])
+      );
+      allow delete: if isGroupAdmin(groupId);
+
+      match /members/{memberUid} {
+        allow read: if isAuthenticated();
+        allow create: if isOwner(memberUid) && isValidMember(request.resource.data);
+        allow delete: if isGroupAdmin(groupId) || isOwner(memberUid);
+      }
+
+      match /sessions/{sessionId} {
+        allow read: if isGroupMember(groupId) || isGroupAdmin(groupId);
+        allow create: if isGroupAdmin(groupId) && isValidSession(request.resource.data);
+        allow update: if (isGroupAdmin(groupId) || isGroupMember(groupId)) && (
+          isValidSession(request.resource.data) || 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['availableNumbers', 'status'])
+        );
+        allow delete: if isGroupAdmin(groupId);
+
+        match /ballots/{ballotId} {
+          allow read: if isGroupMember(groupId) || isGroupAdmin(groupId);
+          allow create: if isGroupMember(groupId) && isValidBallot(request.resource.data);
+          allow update: if isGroupMember(groupId) && 
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voteCount']);
+
+          match /votes/{userId} {
+            allow read: if isGroupMember(groupId) || isGroupAdmin(groupId);
+            allow create, update: if isOwner(userId) && isGroupMember(groupId) &&
+                                   request.resource.data.direction in ['up', 'down'];
+            allow delete: if isOwner(userId);
+          }
+        }
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+  }
+}

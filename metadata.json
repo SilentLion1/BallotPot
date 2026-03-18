@@ -1,0 +1,5 @@
+{
+  "name": "BallotBox",
+  "description": "Fair, non-repeating group balloting app with real-time public ledgers and admin controls.",
+  "requestFramePermissions": []
+}

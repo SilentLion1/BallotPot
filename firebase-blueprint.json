@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "Group": {
+      "title": "Group",
+      "description": "A group for balloting",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Group name" },
+        "adminUid": { "type": "string", "description": "UID of the group creator" },
+        "defaultDuration": { "type": "integer", "description": "Default session duration in minutes" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "activeSessionId": { "type": "string", "description": "ID of the current active ballot session" }
+      },
+      "required": ["name", "adminUid", "defaultDuration", "createdAt"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "A member of a group",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "joinedAt"]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "A balloting session",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "totalNumbers": { "type": "integer" },
+        "availableNumbers": { "type": "array", "items": { "type": "integer" } },
+        "duration": { "type": "integer", "description": "Duration in minutes" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["status", "totalNumbers", "availableNumbers", "duration", "expiresAt", "createdAt"]
+    },
+    "Ballot": {
+      "title": "Ballot",
+      "description": "A single ballot result",
+      "type": "object",
+      "properties": {
+        "memberUid": { "type": "string" },
+        "memberName": { "type": "string" },
+        "number": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberUid", "memberName", "number", "timestamp"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "An invitation to join a group",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "invitedBy": { "type": "string" },
+        "groupName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "invitedBy", "groupName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Group details"
+    },
+    "/groups/{groupId}/members/{memberUid}": {
+      "schema": "Member",
+      "description": "Group members"
+    },
+    "/groups/{groupId}/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Ballot sessions"
+    },
+    "/groups/{groupId}/sessions/{sessionId}/ballots/{ballotId}": {
+      "schema": "Ballot",
+      "description": "Individual ballot results"
+    },
+    "/invitations/{invitationId}": {
+      "schema": "Invitation",
+      "description": "Pending group invitations"
+    }
+  }
+}
